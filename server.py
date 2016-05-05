@@ -29,7 +29,9 @@ class Chat_server:
     sock = None
     tree_conn = {}
     sizeBuf = 4096
-
+    fdr = None
+    fdw = None
+    epoll = None
 
     def try_bind(self, filename):
         sock = socket.socket()
@@ -59,7 +61,7 @@ class Chat_server:
             sock.close()
             raise Exception('All addresses is busy')
 
-    def try_connect_parent(self):
+    def try_connect_parent(self, epoll):
         addrServers = self.addrServers
         if self.parentSock != None:
             self.parentSock.close()
@@ -77,28 +79,48 @@ class Chat_server:
                 if flg == 0:
                     self.parentSock = sock
                     self.parentIndex = curindex
+                    self.socketsServer[self.parentSock.fileno()] = (sock, curindex)
+                    epoll.register(self.parentSock.fileno(), select.EPOLLIN)
+                    print("Parent Server is: №{} {}\n"\
+                          .format(self.parentIndex, self.addrServers[self.parentIndex]))
                     return 0
             return 1
         else:
             self.parentSock = sock
             parent = self.parentIndex
             rval = self.tree_conn[parent].index(self.index)
+            list_servers = self.tree_conn[parent].copy()[:rval] + [self.parentIndex,]
             while 1:
-                for i in range(rval):
-                    flg = self.parentSock.connect_ex(addrServers[self.tree_conn[parent][0]])
-                    if flg == 0 and self.index != self.tree_conn[parent][0]:
-                        self.parentIndex = self.tree_conn[parent][0]
+                for index in list_servers:
+                    if self.index == index:
+                        continue
+                    flg = self.parentSock.connect_ex(addrServers[index])
+                    if flg == 0:
+                        subtree = self.tree_conn[self.index].copy()
+                        self.tree_conn.clear()
+                        self.tree_conn[self.index] = subtree
+                        self.parentIndex = index
+                        self.socketsServer[self.parentSock.fileno()] = (self.parentSock, index)
+                        epoll.register(self.parentSock.fileno(), select.EPOLLIN)
+                        print("Parent Server is: №{} {}\n" \
+                              .format(self.parentIndex, self.addrServers[self.parentIndex]))
                         return 0
                     else:
-                        self.tree_conn[parent].pop(0)
+                        try:
+                            self.tree_conn[parent].remove(index)
+                        except:
+                            if index == parent:
+                                self.tree_conn.pop(parent)
                 flg = 0
                 for key, childs in self.tree_conn.items():
                     if parent in childs:
-                        #self.childs.remove(parent)
                         parent = key
                         rval = len(childs)
+                        list_servers = self.tree_conn[parent].copy() + [parent,]
+                        #self.childs.remove(parent)
                         flg = 1
                         break
+
                 if flg == 0:
                     return 1
 
@@ -108,18 +130,18 @@ class Chat_server:
     def send_allhist(self, sock, fd):
         fd.seek(0, 0)
         buf = fd.read()
-        if sock.fileno() in self.socketsServer.keys():
-            msg = Message('msg', msg=buf)
-            msg = pickle.dumps(msg)
-            sock.send(msg)
-        elif sock.fileno() in self.socketsClient.keys():
-            sock.send(buf.encode())
-
-    # def send_tree_conn(self, sock):
-    #     msg = Message('tree', msg=self.tree_conn)
-    #     msg = pickle.dumps(msg)
-    #     sock.send(msg)
-
+        try:
+            if sock.fileno() in self.socketsServer.keys():
+                msg = Message('msg', msg=buf)
+                msg = pickle.dumps(msg)
+                sock.send(msg)
+                flg = 1
+            elif sock.fileno() in self.socketsClient.keys():
+                sock.send(buf.encode())
+                flg = 0
+        except socket.error:
+            print("Except send()")
+            self.disconnect(sock, flg, self.fdw, self.epoll)
 
     def broadcast(self, msg, except_sock, sockets):
         for fileno, sock in sockets.items():
@@ -131,13 +153,17 @@ class Chat_server:
             try:
                 sock.send(msg)
             except socket.error:
-                if index != -1:
-                    self.tree_conn[self.index].remove(index)
-                self.sockets.pop(fileno)
-                sock.close()
+                print("Except send()")
+                self.disconnect(sock, index == -1, self.fdw, self.epoll)
+                # if index != -1:
+                #     self.tree_conn[self.index].remove(index)
+                # self.sockets.pop(fileno)
+                # sock.close()
+
 
     def __init__(self, filename):
         self.try_bind(filename)
+
 
     def accept_conn(self, epoll, fdr):
         sock, addr = self.sock.accept()
@@ -155,26 +181,31 @@ class Chat_server:
             print(self.tree_conn, end='\n\n')
         else:
             self.socketsClient[sock.fileno()] = sock
-            print('connect Client (%s, %d)' % sock.getsockname())
+            print('connect Client ', sock.getpeername())
         self.send_allhist(sock, fdr)
+
 
     def disconnect(self, sock, flg, fdw, epoll):
         if flg == 0:
             val = self.socketsClient.pop(sock.fileno())
             epoll.unregister(sock.fileno())
-            print("Client (%s, %d) is offline" % val.getsockname())
+            print("Client (%s, %d) is offline" % val.getpeername())
         elif flg == 1:
             val = self.socketsServer.pop(sock.fileno())
             epoll.unregister(sock.fileno())
-            print("Server (%s, %d) is offline" % val[0].getsockname())
+            print("Server (%s, %d) is offline" % val[0].getpeername())
             if val[0] == self.parentSock:
-                if self.try_connect_parent() == 0:
+                if self.try_connect_parent(epoll) == 0:
                     fdw.close()
                     fdw = open('hist' + str(self.index), 'w')
+                print(self.tree_conn, '\n')
+
             else:
                 self.tree_conn[self.index].remove(val[1])
             data = pickle.dumps(Message('tree', tree=self.tree_conn))
             self.broadcast(data, self.parentSock, self.socketsServer)
+        return fdw
+
 
     def run(self):
         sizeBuf = 1024
@@ -183,12 +214,13 @@ class Chat_server:
 
         fdw = open('hist' + str(self.index), 'w')
         fdr = open('hist' + str(self.index), 'r')
+        self.fdw = fdw
+        self.fdr = fdr
         epoll = select.epoll()
+        self.epoll = epoll
         epoll.register(self.sock.fileno(), select.EPOLLIN)
 
-        if self.try_connect_parent() == 0:
-            epoll.register(self.parentSock.fileno(), select.EPOLLIN)
-            socketsServer[self.parentSock.fileno()] = (self.parentSock, self.parentIndex)
+        self.try_connect_parent(epoll)
 
         while 1:
             pairs = epoll.poll()
@@ -202,12 +234,10 @@ class Chat_server:
 
                     if fileno in socketsClient.keys():
                         sock = socketsClient[fileno]
-                        print('Recv msg from Client (%s, %d)', sock.getpeername())
                         flg = 0
                     elif fileno in socketsServer.keys():
                         sock, index = socketsServer[fileno]
                         except_sock = sock
-                        print('Recv msg from Server (%s, %d)', sock.getpeername())
                         flg = 1
                     try:
                         data = sock.recv(sizeBuf)
@@ -215,8 +245,12 @@ class Chat_server:
                             if flg == 0:
                                 msg = Message('msg', msg=data.decode())
                                 data = pickle.dumps(msg)
+                                print('Recv msg from Client ', sock.getpeername())
+
                             elif flg == 1:
                                 msg = pickle.loads(data)
+                                print('Recv msg from Server ', sock.getpeername())
+
                             else: continue
                             if msg.type == 'msg':
                                 self.broadcast(msg.msg.encode(), sock, socketsClient)
@@ -230,8 +264,8 @@ class Chat_server:
                                 print(self.tree_conn, '\n')
 
                         else:
-                            print('NO DATA')
-                            self.disconnect(sock, flg, fdw, epoll)
+                            #print('NO DATA')
+                            fdw = self.disconnect(sock, flg, fdw, epoll)
                             print(self.tree_conn, '\n')
 
 
@@ -247,7 +281,7 @@ class Chat_server:
                         sock, index = socketsServer[fileno]
                         flg = 1
                     else: continue
-                    self.disconnect(sock, flg, fdw, epoll)
+                    fdw = self.disconnect(sock, flg, fdw, epoll)
                     print(self.tree_conn, '\n')
 
 

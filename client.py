@@ -11,16 +11,27 @@ def getServerAddrs(filename):
     fd.close()
     return addrServers
 
-def try_connect_to_server(addrServers):
+def try_connect_to_server(addrServers, epoll):
     sock = socket.socket()
     sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     for addr in addrServers:
         flg = sock.connect_ex(addr)
         if flg == 0:
+            epoll.register(sock.fileno(), select.EPOLLIN)
             return sock
     return None
 
-
+def disconnect(sock, addrServers, epoll):
+    try:
+        epoll.unregister(sock.fileno())
+        sock.close()
+    except:
+        pass
+    sock = try_connect_to_server(addrServers, epoll)
+    if sock == None:
+        print('Not available server')
+        sys.exit(1)
+    else: return sock
 
 def chat_client():
     addrServers = []
@@ -30,12 +41,12 @@ def chat_client():
     name = sys.stdin.readline()[:-1] + ': '
 
     addrServers = getServerAddrs('server_list')
-    sock = try_connect_to_server(addrServers)
+    epoll = select.epoll()
+
+    sock = try_connect_to_server(addrServers, epoll)
     if sock == None:
         print('Not available server')
         return 1
-    epoll = select.epoll()
-    epoll.register(sock.fileno(), select.EPOLLIN)
     epoll.register(sys.stdin.fileno(), select.EPOLLIN)
 
     while 1:
@@ -46,18 +57,19 @@ def chat_client():
                     msg = sock.recv(sizeBuf)
                     if msg:
                         msg = msg.decode()
-                        print(msg)
+                        print(msg[:-1])
                     else:
-                        print(sock.getsockname())
-                        sock.close()
-                        sock = try_connect_to_server(addrServers)
-                        if sock == None:
-                            print('Not available server')
-                            return 1
+                        sock = disconnect(sock, addrServers, epoll)
                 elif fileno == sys.stdin.fileno():
                     msg = name + sys.stdin.readline()
-                    sock.send(msg.encode())
-                    print(msg)
+                    try:
+                        sock.send(msg.encode())
+                        print(msg[:-1])
+                    except socket.error:
+                        disconnect(sock, addrServers, epoll)
+                # elif event & select.EPOLLHUP:
+                #     disconnect(sock, addrServers, epoll)
+
 
 if __name__ == "__main__":
     chat_client()
