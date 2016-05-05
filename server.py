@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+
 import sys
 import socket
 import select
@@ -151,7 +153,7 @@ class Chat_server:
             self.tree_conn[self.index].append(self.addrServers.index(caddr))
             msg = pickle.dumps(Message('tree', tree=self.tree_conn))
             self.broadcast(msg, self.parentSock, self.socketsServer)
-            print('connect Server №%d\n' % index)
+            print('connect Server #%d\n' % index)
             print(self.tree_conn, end='\n\n')
         else:
             self.socketsClient[sock.fileno()] = sock
@@ -202,12 +204,12 @@ class Chat_server:
 
                     if fileno in socketsClient.keys():
                         sock = socketsClient[fileno]
-                        print('Recv msg from Client (%s, %d)', sock.getpeername())
+                        print('Recv msg from Client ', sock.getpeername())
                         flg = 0
                     elif fileno in socketsServer.keys():
                         sock, index = socketsServer[fileno]
                         except_sock = sock
-                        print('Recv msg from Server (%s, %d)', sock.getpeername())
+                        print('Recv msg from Server ', sock.getpeername())
                         flg = 1
                     try:
                         data = sock.recv(sizeBuf)

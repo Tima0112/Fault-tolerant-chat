@@ -1,7 +1,9 @@
+#!/usr/bin/env python3
+
 import socket
 import select
 import sys
-
+from datetime import datetime, date, time
 
 def getServerAddrs(filename):
     addrServers = []
@@ -25,6 +27,7 @@ def try_connect_to_server(addrServers):
 def chat_client():
     addrServers = []
     sizeBuf = 4096
+    print("Welcome to super chat room!\nTo leave input exit ;)")
 
     print('Input name:')
     name = sys.stdin.readline()[:-1] + ': '
@@ -34,6 +37,8 @@ def chat_client():
     if sock == None:
         print('Not available server')
         return 1
+    # msg = sock.recv(siz)
+    # print(msg.decode())
     epoll = select.epoll()
     epoll.register(sock.fileno(), select.EPOLLIN)
     epoll.register(sys.stdin.fileno(), select.EPOLLIN)
@@ -55,7 +60,15 @@ def chat_client():
                             print('Not available server')
                             return 1
                 elif fileno == sys.stdin.fileno():
-                    msg = name + sys.stdin.readline()
+                    buf = sys.stdin.readline() 
+                    time = datetime.now().strftime("(%H:%M:%S) ")
+                    if buf == "exit\n":
+                        msg = time + name + "Bye all!\n"
+                        sock.send(msg.encode())
+                        sock.close()
+                        print("Exit from chat")
+                        return 1
+                    msg = time + name + buf
                     sock.send(msg.encode())
                     print(msg)
 
