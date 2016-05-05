@@ -11,12 +11,14 @@ def getServerAddrs(filename):
     fd.close()
     return addrServers
 
-def try_connect_to_server(sock, addrServers):
+def try_connect_to_server(addrServers):
+    sock = socket.socket()
+    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     for addr in addrServers:
         flg = sock.connect_ex(addr)
         if flg == 0:
-            return 0
-    return 1
+            return sock
+    return None
 
 
 
@@ -26,10 +28,10 @@ def chat_client():
 
     print('Input name:')
     name = sys.stdin.readline()[:-1] + ': '
-    sock = socket.socket()
-    sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+
     addrServers = getServerAddrs('server_list')
-    if try_connect_to_server(sock, addrServers):
+    sock = try_connect_to_server(addrServers)
+    if sock == None:
         print('Not available server')
         return 1
     epoll = select.epoll()
@@ -47,7 +49,9 @@ def chat_client():
                         print(msg)
                     else:
                         print(sock.getsockname())
-                        if try_connect_to_server(sock, addrServers):
+                        sock.close()
+                        sock = try_connect_to_server(addrServers)
+                        if sock == None:
                             print('Not available server')
                             return 1
                 elif fileno == sys.stdin.fileno():

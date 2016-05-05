@@ -61,10 +61,14 @@ class Chat_server:
 
     def try_connect_parent(self):
         addrServers = self.addrServers
+        if self.parentSock != None:
+            self.parentSock.close()
+
+        sock = socket.socket()
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        sock.bind((addrServers[self.index][0], addrServers[self.index][1] + 1))
+
         if self.parentSock == None:
-            sock = socket.socket()
-            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-            sock.bind((addrServers[self.index][0], addrServers[self.index][1] + 1))
             size = len(addrServers)
             curindex = self.index
             for i in range(size - 1):
@@ -76,6 +80,7 @@ class Chat_server:
                     return 0
             return 1
         else:
+            self.parentSock = sock
             parent = self.parentIndex
             rval = self.tree_conn[parent].index(self.index)
             while 1:
