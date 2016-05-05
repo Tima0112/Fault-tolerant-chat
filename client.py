@@ -1,7 +1,9 @@
+#!/usr/bin/env python3
+
 import socket
 import select
 import sys
-
+from datetime import datetime, date, time
 
 def getServerAddrs(filename):
     addrServers = []
@@ -36,18 +38,19 @@ def disconnect(sock, addrServers, epoll):
 def chat_client():
     addrServers = []
     sizeBuf = 4096
+    print("Welcome to super chat room!\nTo leave input exit ;)")
 
     print('Input name:')
     name = sys.stdin.readline()[:-1] + ': '
 
     addrServers = getServerAddrs('server_list')
     epoll = select.epoll()
-
+    epoll.register(sys.stdin.fileno(), select.EPOLLIN)
     sock = try_connect_to_server(addrServers, epoll)
+
     if sock == None:
         print('Not available server')
         return 1
-    epoll.register(sys.stdin.fileno(), select.EPOLLIN)
 
     while 1:
         pairs = epoll.poll()
@@ -61,15 +64,17 @@ def chat_client():
                     else:
                         sock = disconnect(sock, addrServers, epoll)
                 elif fileno == sys.stdin.fileno():
-                    msg = name + sys.stdin.readline()
-                    try:
+                    buf = sys.stdin.readline()
+                    time = datetime.now().strftime("(%H:%M:%S) ")
+                    if buf == "exit\n":
+                        msg = time + name + "Bye all!\n"
                         sock.send(msg.encode())
-                        print(msg[:-1])
-                    except socket.error:
-                        disconnect(sock, addrServers, epoll)
-                # elif event & select.EPOLLHUP:
-                #     disconnect(sock, addrServers, epoll)
-
+                        sock.close()
+                        print("Exit from chat")
+                        return 1
+                    msg = time + name + buf
+                    sock.send(msg.encode())
+                    print(msg[:-1])
 
 if __name__ == "__main__":
     chat_client()
