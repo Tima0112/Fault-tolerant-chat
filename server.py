@@ -186,6 +186,17 @@ class Chat_server:
             print('connect Client ', sock.getpeername())
         self.send_allhist(sock, fdr)
 
+    def update_tree(self, parent_tree):
+        nodes = [self.index,]
+        new_tree = {}
+        while len(nodes):
+            if nodes[0] in self.tree_conn.keys():
+                new_tree[nodes[0]] = self.tree_conn[nodes[0]].copy()
+                nodes.extend(self.tree_conn[nodes[0]])
+            nodes.pop(0)
+        self.tree_conn = new_tree
+        self.tree_conn.update(parent_tree)
+
 
     def disconnect(self, sock, flg, fdw, epoll):
         if flg == 0:
@@ -260,7 +271,8 @@ class Chat_server:
                                 fdw.write(msg.msg)
                                 fdw.flush()
                             elif msg.type == 'tree':
-                                self.tree_conn.update(msg.tree)
+                                #self.tree_conn.update(msg.tree)
+                                self.update_tree(msg.tree)
                                 data = pickle.dumps(Message('tree', tree=self.tree_conn))
                                 self.broadcast(data, except_sock, socketsServer)
                                 print(self.tree_conn, '\n')
