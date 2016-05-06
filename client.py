@@ -3,6 +3,7 @@
 import socket
 import select
 import sys
+import os
 from datetime import datetime, date, time
 
 def getServerAddrs(filename):
@@ -23,12 +24,17 @@ def try_connect_to_server(addrServers, epoll):
             return sock
     return None
 
+def clear():
+    for i in range(10):
+        print('\n')
+
 def disconnect(sock, addrServers, epoll):
     try:
         epoll.unregister(sock.fileno())
         sock.close()
     except:
         pass
+    clear()
     sock = try_connect_to_server(addrServers, epoll)
     if sock == None:
         print('Not available server')
